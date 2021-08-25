@@ -5,6 +5,7 @@
 #pragma once
 
 #include "runtime/kphp_core.h"
+#include "ffi.h"
 
 string f$uniqid(const string &prefix = string(), bool more_entropy = false);
 
@@ -53,7 +54,6 @@ void f$var_dump(const class_instance<T> &v) {
   php_warning("print_r used on object");
   return f$var_dump(string(v.get_class(), (string::size_type)strlen(v.get_class())));
 }
-
 
 string f$var_export(const mixed &v, bool buffered = false);
 

@@ -2,6 +2,8 @@ set(KPHP_COMPILER_DIR ${BASE_DIR}/compiler)
 
 set(KPHP_COMPILER_AUTO_DIR ${AUTO_DIR}/compiler)
 set(KEYWORDS_SET ${KPHP_COMPILER_AUTO_DIR}/keywords_set.hpp)
+set(KPHP_COMPILER_FFI_AUTO_SOURCES
+    ${KPHP_COMPILER_AUTO_DIR}/ffi/c_parser/yy_parser.cpp)
 set(KEYWORDS_GPERF ${KPHP_COMPILER_DIR}/keywords.gperf)
 
 prepend(KPHP_COMPILER_COMMON ${COMMON_DIR}/
@@ -44,6 +46,7 @@ prepend(KPHP_COMPILER_DATA_SOURCES data/
         performance-inspections.cpp
         src-file.cpp
         var-data.cpp
+        ffi-data.cpp
         vars-collector.cpp
         virtual-method-generator.cpp)
 
@@ -143,9 +146,11 @@ prepend(KPHP_COMPILER_PIPES_SOURCES pipes/
         preprocess-eq3.cpp
         preprocess-exceptions.cpp
         preprocess-function.cpp
+        preprocess-ffi-operations.cpp
         register-defines.cpp
         register-kphp-configuration.cpp
         register-variables.cpp
+        register-ffi-scopes.cpp
         remove-empty-function-calls.cpp
         resolve-self-static-parent.cpp
         sort-and-inherit-classes.cpp
@@ -153,6 +158,12 @@ prepend(KPHP_COMPILER_PIPES_SOURCES pipes/
         transform-to-smart-instanceof.cpp
         type-inferer.cpp
         write-files.cpp)
+
+prepend(KPHP_COMPILER_FFI_SOURCES ffi/
+        c_parser/parsing_driver.cpp
+        c_parser/lexer_generated.cpp
+        ffi_types.cpp
+        ffi_parser.cpp)
 
 prepend(KPHP_COMPILER_SOURCES ${KPHP_COMPILER_DIR}/
         ${KPHP_COMPILER_CODEGEN_SOURCES}
@@ -162,6 +173,7 @@ prepend(KPHP_COMPILER_SOURCES ${KPHP_COMPILER_DIR}/
         ${KPHP_COMPILER_PIPES_SOURCES}
         ${KPHP_COMPILER_SCHEDULER_SOURCES}
         ${KPHP_COMPILER_THREADING_SOURCES}
+        ${KPHP_COMPILER_FFI_SOURCES}
         class-assumptions.cpp
         compiler-core.cpp
         compiler.cpp
@@ -188,6 +200,7 @@ endif()
 
 list(APPEND KPHP_COMPILER_SOURCES
      ${KPHP_COMPILER_COMMON}
+     ${KPHP_COMPILER_FFI_AUTO_SOURCES}
      ${KEYWORDS_SET})
 
 vk_add_library(kphp2cpp_src OBJECT ${KPHP_COMPILER_SOURCES})
@@ -210,6 +223,18 @@ add_custom_command(OUTPUT ${VERTEX_AUTO_GENERATED}
                    COMMENT "vertices generation")
 add_custom_target(auto_vertices_generation_target DEPENDS ${VERTEX_AUTO_GENERATED})
 
+prepend(C_PARSER_AUTO_GENERATED ${KPHP_COMPILER_AUTO_DIR}/ffi/c_parser/
+        yy_parser.cpp
+        yy_parser.hpp
+        stack.hh)
+
+add_custom_command(OUTPUT ${C_PARSER_AUTO_GENERATED}
+                   COMMAND ${Python3_EXECUTABLE} ${KPHP_COMPILER_DIR}/ffi/c-parser-gen.py --auto ${AUTO_DIR}
+                   DEPENDS ${KPHP_COMPILER_DIR}/ffi/c-parser-gen.py
+                           ${KPHP_COMPILER_DIR}/ffi/c_parser/c.y
+                   COMMENT "C parser generation (required for FFI)")
+add_custom_target(auto_c_parser_generation_target DEPENDS ${C_PARSER_AUTO_GENERATED})
+
 set_property(SOURCE ${KPHP_COMPILER_DIR}/kphp2cpp.cpp
              APPEND
              PROPERTY COMPILE_DEFINITIONS
@@ -227,3 +252,4 @@ target_link_options(kphp2cpp PRIVATE ${NO_PIE})
 set_target_properties(kphp2cpp PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${BIN_DIR})
 
 add_dependencies(kphp2cpp_src auto_vertices_generation_target)
+add_dependencies(kphp2cpp_src auto_c_parser_generation_target)

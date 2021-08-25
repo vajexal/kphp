@@ -1,0 +1,22 @@
+<?php
+
+namespace FFI;
+
+class CData {}
+final class CData_Void extends CData {}
+final class CData_Bool extends CData {}
+final class CData_Char extends CData {}
+final class CData_Float extends CData {}
+final class CData_Double extends CData {}
+final class CData_Int8 extends CData {}
+final class CData_Int16 extends CData {}
+final class CData_Int32 extends CData {}
+final class CData_Int64 extends CData {}
+final class CData_Uint8 extends CData {}
+final class CData_Uint16 extends CData {}
+final class CData_Uint32 extends CData {}
+final class CData_Uint64 extends CData {}
+
+class Scope {
+  public function new(string $type): CData;
+}
