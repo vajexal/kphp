@@ -58,6 +58,7 @@
 #include "server/job-workers/shared-memory-manager.h"
 #include "runtime/profiler.h"
 #include "runtime/rpc.h"
+#include "runtime/xgboost/model.h"
 #include "server/cluster-name.h"
 #include "server/confdata-binlog-replay.h"
 #include "server/job-workers/job-worker-client.h"
@@ -1866,6 +1867,10 @@ int main_args_handler(int i, const char *long_option) {
       const char *lease_config = optarg;
       return LeaseConfigParser::parse_lease_options_config(lease_config);
     }
+    case 'x': {
+      vk::singleton<vk::xgboost::ModelPath>::get().path = optarg;
+      return 0;
+    }
     case 2000: {
       return read_option_to(long_option, 1, std::numeric_limits<int>::max(), queries_to_recreate_script);
     }
@@ -2078,6 +2083,7 @@ void parse_main_args(int argc, char *argv[]) {
   parse_option("time-limit", required_argument, 't', "time limit for script in seconds");
   parse_option("small-acsess-log", optional_argument, 'U', "don't write get data in log. If used twice (or with value 2), disables access log.");
   parse_option("fatal-warnings", no_argument, 'K', "script is killed, when warning happened");
+  parse_option("xgboost-model-path-experimental", required_argument, 'x', "intended for tests, don't use it for now!");
   parse_option("worker-queries-to-reload", required_argument, 2000, "worker script is reloaded, when <queries> queries processed (default: 100)");
   parse_option("worker-memory-to-reload", required_argument, 2001, "worker script is reloaded, when <memory> queries processed");
   parse_option("use-madvise-dontneed", no_argument, 2002, "Use madvise MADV_DONTNEED for script memory above limit");
@@ -2203,6 +2209,7 @@ int run_main(int argc, char **argv, php_mode mode) {
 
   start_server();
 
+  shutdown_xgboost_lib();
   vkprintf (1, "return 0;\n");
   if (run_once) {
     return run_once_return_code;
