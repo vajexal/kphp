@@ -8,7 +8,6 @@
 #include "common/algorithms/compare.h"
 #include "common/algorithms/hashes.h"
 
-#include "compiler/class-assumptions.h"
 #include "compiler/data/class-members.h"
 #include "compiler/data/class-modifiers.h"
 #include "compiler/debug.h"
@@ -25,7 +24,7 @@ enum class ClassType {
 };
 
 class ClassData : public Lockable {
-  DEBUG_STRING_METHOD { return name; }
+  DEBUG_STRING_METHOD { return as_human_readable(); }
   
 public:
   // extends/implements/use trait description in a string form (class_name)
@@ -38,10 +37,6 @@ public:
       class_name(std::move(class_name)) {}
   };
 
-private:
-  std::vector<StrDependence> str_dependents;   // extends/implements/use trait during the parsing (before ptr is assigned)
-
-public:
   int id{0};
   ClassType class_type{ClassType::klass}; // class/interface/trait
   std::string name;                       // class name with a full namespace path and slashes: "VK\Feed\A"
@@ -73,19 +68,19 @@ public:
   ClassModifiers modifiers;
   ClassMembersContainer members;
 
+  const TypeHint *type_hint;
   const TypeData *const type_data;
 
   static const char *NAME_OF_VIRT_CLONE;
   static const char *NAME_OF_CLONE;
   static const char *NAME_OF_CONSTRUCT;
-  static const char *NAME_OF_INVOKE_METHOD;
   static const char *NAME_OF_TO_STRING;
 
   ClassData();
+  std::string as_human_readable() const;
 
   static VertexAdaptor<op_var> gen_vertex_this(Location location);
   FunctionPtr gen_holder_function(const std::string &name);
-  FunctionPtr add_magic_method(const char *magic_name, VertexPtr return_value);
   FunctionPtr add_virt_clone();
   void add_class_constant();
 
@@ -96,11 +91,6 @@ public:
 
   static auto gen_param_this(Location location) {
     return VertexAdaptor<op_func_param>::create(gen_vertex_this(location));
-  }
-
-  // function fname(args) => function fname($this ::: class_instance, args)
-  static void patch_func_add_this(std::vector<VertexAdaptor<op_func_param>> &params_next, Location location) {
-    params_next.emplace(params_next.begin(), gen_param_this(location));
   }
 
 
@@ -115,14 +105,24 @@ public:
   bool is_class() const { return class_type == ClassType::klass; }
   bool is_interface() const { return class_type == ClassType::interface; }
   bool is_trait() const { return class_type == ClassType::trait; }
-  virtual bool is_lambda() const { return false; }
+  bool is_lambda_class() const { return class_type == ClassType::klass && is_lambda; }
+  bool is_typed_callable_interface() const { return class_type == ClassType::interface && is_lambda; }
 
   bool is_parent_of(ClassPtr other) const;
   std::vector<ClassPtr> get_common_base_or_interface(ClassPtr other) const;
-  const ClassMemberInstanceMethod *get_instance_method(vk::string_view local_name) const;
-  const ClassMemberInstanceField *get_instance_field(vk::string_view local_name) const;
-  const ClassMemberStaticField *get_static_field(vk::string_view local_name) const;
-  const ClassMemberConstant *get_constant(vk::string_view local_name) const;
+  
+  const ClassMemberInstanceMethod *get_instance_method(vk::string_view local_name) const {
+    return find_instance_method_by_local_name(local_name);
+  }
+  const ClassMemberInstanceField *get_instance_field(vk::string_view local_name) const {
+    return find_by_local_name<ClassMemberInstanceField>(local_name);
+  }
+  const ClassMemberStaticField *get_static_field(vk::string_view local_name) const {
+    return find_by_local_name<ClassMemberStaticField>(local_name);
+  }
+  const ClassMemberConstant *get_constant(vk::string_view local_name) const {
+    return find_by_local_name<ClassMemberConstant>(local_name);
+  }
 
   ClassPtr get_self() const {
     return ClassPtr{const_cast<ClassData *>(this)};
@@ -132,25 +132,19 @@ public:
 
   bool need_virtual_modifier() const {
     auto has_several_parents = [](ClassPtr c) { return (c->parent_class && !c->implements.empty()) || c->implements.size() > 1; };
-    return vk::any_of(get_all_inheritors(), has_several_parents);
+    return vk::any_of(get_all_derived_classes(), has_several_parents);
   }
 
-  void set_name_and_src_name(const std::string &name, vk::string_view phpdoc_str);
+  void set_name_and_src_name(const std::string &name);
 
   void debugPrint();
-
-  virtual const char *get_name() const {
-    return name.c_str();
-  }
 
   int get_hash() const {
     return static_cast<int>(vk::std_hash(name));
   }
 
-  virtual std::string get_namespace() const;
-
-  virtual std::string get_subdir() const {
-    return "cl";
+  std::string get_subdir() const {
+    return is_lambda ? "cl_l" : "cl";
   }
 
   const std::string *get_parent_class_name() const {
@@ -164,15 +158,13 @@ public:
     return nullptr;
   }
 
-  std::vector<ClassPtr> get_all_inheritors() const;
-
+  std::vector<ClassPtr> get_all_derived_classes() const;
   std::vector<ClassPtr> get_all_ancestors() const;
 
   bool is_builtin() const;
   bool is_polymorphic_or_has_polymorphic_member() const;
-  static bool does_need_codegen(ClassPtr c);
+  bool does_need_codegen() const;
   void mark_as_used();
-  bool has_no_derived_classes() const;
 
   void deeply_require_instance_to_array_visitor();
   void deeply_require_instance_cache_visitor();
@@ -195,9 +187,12 @@ private:
 
   template<class MemberT>
   const MemberT *find_by_local_name(vk::string_view local_name) const {
-    for (const auto &ancestor : get_all_ancestors()) {
-      AutoLocker<Lockable *> locker(&(*ancestor));
-      if (auto member = ancestor->members.find_by_local_name<MemberT>(local_name)) {
+    // we don't lock the class here: it's assumed, that members are not inserted concurrently
+    if (const auto *member = members.find_by_local_name<MemberT>(local_name)) {
+      return member;
+    }
+    for (ClassPtr ancestor : get_all_ancestors()) {
+      if (const auto *member = ancestor->members.find_by_local_name<MemberT>(local_name)) {
         return member;
       }
     }
@@ -207,6 +202,12 @@ private:
 
   template<std::atomic<bool> ClassData:: *field_ptr>
   void set_atomic_field_deeply();
+
+  // extends/implements/use trait during the parsing (before ptr is assigned)
+  std::vector<StrDependence> str_dependents;
+
+  // true for lambda classes and typed callable interfaces, based on name starts_with
+  bool is_lambda{false};
 };
 
 bool operator<(const ClassPtr &lhs, const ClassPtr &rhs);

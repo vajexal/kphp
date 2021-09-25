@@ -124,7 +124,7 @@ std::string TypeData::as_human_readable(bool colored) const {
       break;
     }
     case tp_Class: {
-      res = class_type()->name;
+      res = class_type()->as_human_readable();
       break;
     }
     case tp_any: {
@@ -176,16 +176,6 @@ PrimitiveType TypeData::get_real_ptype() const {
     return tp_bool;
   }
   return p;
-}
-
-void TypeData::set_ptype(PrimitiveType new_ptype) {
-  ptype_ = new_ptype;
-}
-
-ClassPtr TypeData::class_type() const {
-  if (class_type_.empty()) return {};
-  kphp_assert(std::distance(class_type_.begin(), class_type_.end()) == 1);
-  return class_type_.front();
 }
 
 void TypeData::set_class_type(const std::forward_list<ClassPtr> &new_class_type) {
