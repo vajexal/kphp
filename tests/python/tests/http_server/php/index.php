@@ -37,6 +37,21 @@ if ($_SERVER["PHP_SELF"] === "/ini_get") {
   }
   file_put_contents("out.dat", $res === false ? "false" : $res);
   echo "OK";
+} else if ($_SERVER["PHP_SELF"] === "/test_bcmath") {
+  $params = json_decode(file_get_contents('php://input'));
+  $type = $params["type"];
+  $arg1 = $params["arg1"];
+  $arg2 = $params["arg2"];
+  $scale = $params["scale"];
+
+  switch($type) {
+    case "bcadd":
+      echo bcadd($arg1, $arg2, $scale); break;
+    case "bcmul":
+      echo bcmul($arg1, $arg2, $scale); break;
+    default:
+      echo "ERROR"; return;
+  }
 } else {
   echo "Hello world!";
 }
